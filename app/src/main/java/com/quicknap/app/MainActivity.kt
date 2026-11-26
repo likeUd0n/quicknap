@@ -29,6 +29,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.quicknap.app.shizuku.ShizukuStatus
 import com.quicknap.app.ui.AddAppFab
+import com.quicknap.app.ui.CategoryScreen
 import com.quicknap.app.ui.HomeScreen
 import com.quicknap.app.ui.MainViewModel
 import com.quicknap.app.ui.PickScreen
@@ -61,8 +62,11 @@ class MainActivity : ComponentActivity() {
                 val snackbarHostState = remember { SnackbarHostState() }
                 val lifecycleOwner = LocalLifecycleOwner.current
                 var showPick by rememberSaveable { mutableStateOf(false) }
-                // ホームの「外す」選択モード中は「アプリを選ぶ」ボタンを隠す
+                var showCategories by rememberSaveable { mutableStateOf(false) }
+                var categoryInitialCreate by rememberSaveable { mutableStateOf(false) }
+                // ホームの「外す」選択モード・手動並び替えモード中は「アプリを選ぶ」ボタンを隠す
                 var selecting by rememberSaveable { mutableStateOf(false) }
+                var reordering by rememberSaveable { mutableStateOf(false) }
 
                 // 外部（Shizuku・設定画面・起こしたアプリ）から戻ったときに状態を同期する
                 DisposableEffect(lifecycleOwner) {
@@ -95,11 +99,15 @@ class MainActivity : ComponentActivity() {
                 }
 
                 BackHandler(enabled = state.setupDone && showPick) { showPick = false }
+                BackHandler(enabled = state.setupDone && showCategories) {
+                    showCategories = false
+                    categoryInitialCreate = false
+                }
 
                 Scaffold(
                     containerColor = palette.bgScreen,
                     floatingActionButton = {
-                        if (state.setupDone && !showPick && !selecting && state.hasManaged) {
+                        if (state.setupDone && !showPick && !showCategories && !selecting && !reordering && state.hasManaged) {
                             AddAppFab(onClick = { showPick = true })
                         }
                     },
@@ -135,13 +143,31 @@ class MainActivity : ComponentActivity() {
                                 onChangeDays = viewModel::changeAutoSleepDays,
                             )
 
+                            showCategories -> CategoryScreen(
+                                state = state,
+                                initialCreate = categoryInitialCreate,
+                                onBack = {
+                                    showCategories = false
+                                    categoryInitialCreate = false
+                                },
+                                onSaveCategory = viewModel::saveCategory,
+                                onDeleteCategory = viewModel::deleteCategory,
+                            )
+
                             else -> HomeScreen(
                                 state = state,
                                 onPick = { showPick = true },
+                                onOpenCategories = { createNew ->
+                                    categoryInitialCreate = createNew
+                                    showCategories = true
+                                },
                                 onTapRow = viewModel::tapHomeRow,
                                 onToggle = viewModel::toggleHomeRow,
                                 selecting = selecting,
                                 onSelectingChange = { selecting = it },
+                                reordering = reordering,
+                                onReorderingChange = { reordering = it },
+                                onReorderAsleep = viewModel::reorderAsleep,
                                 onRelease = viewModel::releaseHomeRows,
                                 onOpenAppDetails = viewModel::openAppDetails,
                                 onResumeShizuku = viewModel::openShizuku,

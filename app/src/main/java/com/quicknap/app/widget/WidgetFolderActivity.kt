@@ -10,6 +10,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +32,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
@@ -36,9 +40,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +60,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -62,6 +73,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.lifecycleScope
 import com.quicknap.app.MainActivity
 import com.quicknap.app.QuicknapApp
@@ -70,6 +82,7 @@ import com.quicknap.app.data.LaunchableApp
 import com.quicknap.app.shizuku.ShizukuStatus
 import com.quicknap.app.ui.theme.LocalQuicknapPalette
 import com.quicknap.app.ui.theme.QuicknapTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private data class FolderItem(
@@ -132,6 +145,7 @@ class WidgetFolderActivity : ComponentActivity() {
                 var items by remember { mutableStateOf(initialItems.orEmpty()) }
                 var shizukuReady by remember { mutableStateOf(initialShizukuReady) }
                 var launchingPkg by remember { mutableStateOf<String?>(null) }
+                var userReordered by remember { mutableStateOf(false) }
                 val scope = rememberCoroutineScope()
 
                 LaunchedEffect(Unit) {
@@ -148,19 +162,25 @@ class WidgetFolderActivity : ComponentActivity() {
 
                     // 1. まず使用履歴の集計を待たず、管理対象アプリの最新状態だけで即座に一覧を確定する
                     val managedLaunchables = app.installed.loadManagedApps(targetPackages)
-                    val cachedUsage = if (state.asleepSortOrder == AsleepSortOrder.NAME) {
-                        emptyMap()
-                    } else {
+                    val needsUsage = state.asleepSortOrder == AsleepSortOrder.FREQUENCY ||
+                        state.asleepSortOrder == AsleepSortOrder.RECENT
+                    val cachedUsage = if (needsUsage) {
                         app.usage.cachedLastUsedMap()
+                    } else {
+                        emptyMap()
                     }
-                    items = sortFolderItems(app, state, managedLaunchables, cachedUsage)
+                    if (!userReordered) {
+                        items = sortFolderItems(app, state, managedLaunchables, cachedUsage)
+                    }
                     loading = false
 
                     // 2. 使用履歴の最新化は裏で行い、並び順が変わった場合だけ反映する
-                    if (state.asleepSortOrder != AsleepSortOrder.NAME) {
+                    if (needsUsage && !userReordered) {
                         val freshUsage = app.usage.lastUsedMap()
                         val resorted = sortFolderItems(app, state, managedLaunchables, freshUsage)
-                        if (resorted.map { it.app.packageName } != items.map { it.app.packageName }) {
+                        if (!userReordered &&
+                            resorted.map { it.app.packageName } != items.map { it.app.packageName }
+                        ) {
                             items = resorted
                         }
                     }
@@ -204,6 +224,22 @@ class WidgetFolderActivity : ComponentActivity() {
                         scope.launch {
                             handleItemTap(app, item, shizukuReady)
                             launchingPkg = null
+                        }
+                    },
+                    onMoveItem = { fromIndex, toIndex ->
+                        if (fromIndex in items.indices && toIndex in items.indices && fromIndex != toIndex) {
+                            userReordered = true
+                            items = items.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+                        }
+                    },
+                    onCommitReorder = {
+                        val orderedPackages = items.map { it.app.packageName }
+                        scope.launch {
+                            app.store.mergeManualAsleepOrder(
+                                visibleOrderedPackages = orderedPackages,
+                                fallbackBase = orderedPackages,
+                            )
+                            QuicknapWidgetProvider.updateAll(app)
                         }
                     },
                 )
@@ -270,6 +306,13 @@ class WidgetFolderActivity : ComponentActivity() {
                 }.thenBy { it.app.label.lowercase() }
             )
             AsleepSortOrder.NAME -> matched.sortedBy { it.app.label.lowercase() }
+            AsleepSortOrder.MANUAL -> {
+                val orderIndex = state.manualAsleepOrder.withIndex().associate { (i, pkg) -> pkg to i }
+                matched.sortedWith(
+                    compareBy<FolderItem> { orderIndex[it.app.packageName] ?: Int.MAX_VALUE }
+                        .thenBy { it.app.label.lowercase() }
+                )
+            }
         }
     }
 
@@ -298,15 +341,112 @@ private fun FolderPopupContent(
     onOpenApp: () -> Unit,
     onOpenShizuku: () -> Unit,
     onTapItem: (FolderItem) -> Unit,
+    onMoveItem: (Int, Int) -> Unit,
+    onCommitReorder: () -> Unit,
 ) {
     val palette = LocalQuicknapPalette.current
+    val haptic = LocalHapticFeedback.current
+    val gridState = rememberLazyGridState()
+    val latestItems by rememberUpdatedState(items)
+    val latestLaunchingPkg by rememberUpdatedState(launchingPkg)
+    var draggingKey by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var movedDuringDrag by remember { mutableStateOf(false) }
+    var autoScrollSpeed by remember { mutableFloatStateOf(0f) }
+    // 並び替えモード中は起動を止め、長押しなしでドラッグできるようにする
+    var reorderMode by remember { mutableStateOf(false) }
+    val canReorder = !loading && items.size >= 2
+
+    LaunchedEffect(canReorder) {
+        if (!canReorder) reorderMode = false
+    }
+
+    val onReorderDragStart: (Offset) -> Unit = start@{ startOffset ->
+        if (latestLaunchingPkg != null || latestItems.size < 2) return@start
+        val hit = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+            startOffset.x >= info.offset.x &&
+                startOffset.x <= info.offset.x + info.size.width &&
+                startOffset.y >= info.offset.y &&
+                startOffset.y <= info.offset.y + info.size.height
+        } ?: return@start
+        val key = hit.key as? String ?: return@start
+        draggingKey = key
+        dragOffset = Offset.Zero
+        movedDuringDrag = false
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    val onReorderDrag: (PointerInputChange, Offset) -> Unit = drag@{ change, dragAmount ->
+        val key = draggingKey ?: return@drag
+        change.consume()
+        dragOffset += dragAmount
+        val currentInfo = gridState.layoutInfo.visibleItemsInfo
+            .firstOrNull { it.key == key }
+            ?: return@drag
+        val centerX = currentInfo.offset.x + currentInfo.size.width / 2f + dragOffset.x
+        val centerY = currentInfo.offset.y + currentInfo.size.height / 2f + dragOffset.y
+
+        val targetInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+            info.key != key &&
+                centerX >= info.offset.x &&
+                centerX <= info.offset.x + info.size.width &&
+                centerY >= info.offset.y &&
+                centerY <= info.offset.y + info.size.height
+        }
+        if (targetInfo != null) {
+            val fromIndex = currentInfo.index
+            val toIndex = targetInfo.index
+            if (fromIndex != toIndex &&
+                fromIndex in latestItems.indices &&
+                toIndex in latestItems.indices
+            ) {
+                onMoveItem(fromIndex, toIndex)
+                if (fromIndex == 0 || toIndex == 0) {
+                    gridState.requestScrollToItem(
+                        gridState.firstVisibleItemIndex,
+                        gridState.firstVisibleItemScrollOffset,
+                    )
+                }
+                dragOffset -= Offset(
+                    x = (targetInfo.offset.x - currentInfo.offset.x).toFloat(),
+                    y = (targetInfo.offset.y - currentInfo.offset.y).toFloat(),
+                )
+                movedDuringDrag = true
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            }
+        }
+
+        val viewportHeight = gridState.layoutInfo.viewportSize.height.toFloat()
+        val edgePx = 64f
+        autoScrollSpeed = when {
+            centerY < edgePx -> -12f
+            centerY > viewportHeight - edgePx -> 12f
+            else -> 0f
+        }
+    }
+    val onReorderDragFinish: () -> Unit = {
+        val commit = movedDuringDrag
+        draggingKey = null
+        dragOffset = Offset.Zero
+        movedDuringDrag = false
+        autoScrollSpeed = 0f
+        if (commit) onCommitReorder()
+    }
+
+    LaunchedEffect(autoScrollSpeed) {
+        if (autoScrollSpeed == 0f) return@LaunchedEffect
+        while (true) {
+            gridState.scrollBy(autoScrollSpeed)
+            delay(16L)
+        }
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = onDismiss,
+                onClick = { if (draggingKey == null) onDismiss() },
             )
             .padding(horizontal = 16.dp, vertical = 28.dp),
         contentAlignment = Alignment.Center,
@@ -335,14 +475,36 @@ private fun FolderPopupContent(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = title,
+                        text = if (reorderMode) "ドラッグで並び替え" else title,
                         color = Color.White,
-                        fontSize = 17.sp,
+                        fontSize = if (reorderMode) 15.sp else 17.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    Spacer(Modifier.width(8.dp))
+                    if (canReorder) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (reorderMode) Color.White else Color.White.copy(alpha = 0.16f))
+                                .clickable(role = Role.Button, enabled = draggingKey == null) { reorderMode = !reorderMode }
+                                .semantics {
+                                    contentDescription = if (reorderMode) "並び替えを終える" else "並び替える"
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "≡",
+                                color = if (reorderMode) SkyBottom else Color.White,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
                     if (canConfigure) {
                         Box(
                             modifier = Modifier
@@ -454,21 +616,55 @@ private fun FolderPopupContent(
                     }
 
                     else -> LazyVerticalGrid(
+                        state = gridState,
                         columns = GridCells.Fixed(4),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = gridMaxHeight),
-                        contentPadding = PaddingValues(vertical = 2.dp),
+                            .heightIn(max = gridMaxHeight)
+                            .pointerInput(reorderMode) {
+                                if (reorderMode) {
+                                    detectDragGestures(
+                                        onDragStart = onReorderDragStart,
+                                        onDrag = onReorderDrag,
+                                        onDragEnd = onReorderDragFinish,
+                                        onDragCancel = onReorderDragFinish,
+                                    )
+                                } else {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = onReorderDragStart,
+                                        onDrag = onReorderDrag,
+                                        onDragEnd = onReorderDragFinish,
+                                        onDragCancel = onReorderDragFinish,
+                                    )
+                                }
+                            },
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(items, key = { it.app.packageName }) { item ->
+                            val isDragging = draggingKey == item.app.packageName
+                            val tileModifier = if (isDragging) {
+                                Modifier
+                                    .zIndex(1f)
+                                    .graphicsLayer {
+                                        translationX = dragOffset.x
+                                        translationY = dragOffset.y
+                                        scaleX = 1.08f
+                                        scaleY = 1.08f
+                                    }
+                            } else {
+                                Modifier.animateItem()
+                            }
                             FolderAppTile(
                                 label = item.app.label,
                                 icon = item.app.icon,
                                 asleep = item.asleep,
                                 busy = launchingPkg == item.app.packageName,
+                                dragging = isDragging,
+                                clickEnabled = draggingKey == null && !reorderMode,
                                 onClick = { onTapItem(item) },
+                                modifier = tileModifier,
                             )
                         }
                     }
@@ -484,14 +680,18 @@ private fun FolderAppTile(
     icon: ImageBitmap?,
     asleep: Boolean,
     busy: Boolean,
+    dragging: Boolean,
+    clickEnabled: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalQuicknapPalette.current
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .clickable(enabled = !busy, onClick = onClick)
+            .background(if (dragging) Color.White.copy(alpha = 0.22f) else Color.Transparent)
+            .clickable(enabled = !busy && clickEnabled, onClick = onClick)
             .padding(vertical = 4.dp, horizontal = 2.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {

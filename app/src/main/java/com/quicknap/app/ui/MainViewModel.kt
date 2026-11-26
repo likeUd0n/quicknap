@@ -13,6 +13,7 @@ import com.quicknap.app.data.SleepReason
 import com.quicknap.app.domain.AppSnapshot
 import com.quicknap.app.domain.SleepController
 import com.quicknap.app.shizuku.ShizukuStatus
+import com.quicknap.app.widget.QuicknapWidgetProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,6 +59,7 @@ data class UiState(
     val asleepCategoryCounts: Map<String, Int> = emptyMap(),
     val awake: List<HomeRow> = emptyList(),
     val asleep: List<HomeRow> = emptyList(),
+    val allManaged: List<HomeRow> = emptyList(),
     val pickMain: List<PickRow> = emptyList(),
     val pickCaution: List<PickRow> = emptyList(),
     val busy: Set<String> = emptySet(),
@@ -259,16 +261,69 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setAsleepSortOrder(order: AsleepSortOrder) {
-        viewModelScope.launch { app.store.setAsleepSortOrder(order) }
+        viewModelScope.launch {
+            if (order == AsleepSortOrder.MANUAL) {
+                val current = app.store.current()
+                if (current.manualAsleepOrder.isEmpty()) {
+                    // 初回に手動順へ切り替えたときは、いま見えている順番を初期値として固定する
+                    val initial = ui.value.asleep.map { it.app.packageName }
+                    app.store.setManualAsleepOrder(initial)
+                    QuicknapWidgetProvider.updateAll(app)
+                    return@launch
+                }
+            }
+            app.store.setAsleepSortOrder(order)
+            QuicknapWidgetProvider.updateAll(app)
+        }
+    }
+
+    /**
+     * 眠っているアプリの並び替えを保存する。
+     * カテゴリ絞り込み中の並び替えでも、他カテゴリの順番を壊さないよう該当スロットだけ入れ替える。
+     */
+    fun reorderAsleep(visibleOrderedPackages: List<String>) {
+        if (visibleOrderedPackages.isEmpty()) return
+        viewModelScope.launch {
+            val fallback = ui.value.allManaged.filter { it.asleep }.map { it.app.packageName }
+            app.store.mergeManualAsleepOrder(visibleOrderedPackages, fallbackBase = fallback)
+            QuicknapWidgetProvider.updateAll(app)
+        }
     }
 
     fun assignCategory(packageName: String, categoryId: String?) {
         viewModelScope.launch {
             app.store.setAppCategory(packageName, categoryId)
+            QuicknapWidgetProvider.updateAll(app)
             val label = installedApps.value.firstOrNull { it.packageName == packageName }?.label
             val catName = ui.value.categories.firstOrNull { it.id == categoryId }?.name
             val msg = if (catName != null) "「$catName」に設定しました" else "未分類に戻しました"
             emit(msg, subject = label)
+        }
+    }
+
+    /** カテゴリ管理画面からの作成・編集（名前＋所属アプリの一括保存） */
+    fun saveCategory(id: String?, name: String, packageNames: Set<String>) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val categories = app.store.current().categories
+            val duplicate = categories.firstOrNull {
+                it.id != id && it.name.equals(trimmed, ignoreCase = true)
+            }
+            if (duplicate != null) {
+                emit("「${duplicate.name}」はすでにあります")
+                return@launch
+            }
+            val targetId = if (id == null) {
+                app.store.addCategory(trimmed).id
+            } else {
+                app.store.renameCategory(id, trimmed)
+                id
+            }
+            app.store.setCategoryApps(targetId, packageNames)
+            QuicknapWidgetProvider.updateAll(app)
+            val msg = if (id == null) "カテゴリ「$trimmed」を作成しました" else "カテゴリ「$trimmed」を保存しました"
+            emit(msg)
         }
     }
 
@@ -305,6 +360,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val name = app.store.current().categories.firstOrNull { it.id == id }?.name
             app.store.deleteCategory(id)
+            QuicknapWidgetProvider.updateAll(app)
             if (selectedCategory.value == id) selectedCategory.value = null
             if (name != null) emit("カテゴリ「$name」を削除しました")
         }
@@ -435,6 +491,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }.thenBy { it.app.label.lowercase() }
             )
             AsleepSortOrder.NAME -> filteredAsleep.sortedBy { it.app.label.lowercase() }
+            AsleepSortOrder.MANUAL -> {
+                val orderIndex = state.manualAsleepOrder.withIndex().associate { (i, pkg) -> pkg to i }
+                filteredAsleep.sortedWith(
+                    compareBy<HomeRow> { orderIndex[it.app.packageName] ?: Int.MAX_VALUE }
+                        .thenBy { it.app.label.lowercase() }
+                )
+            }
         }
 
         val pickRows = apps.map { a ->
@@ -468,6 +531,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             asleepCategoryCounts = counts,
             awake = awakeRows,
             asleep = sortedAsleep,
+            allManaged = homeRows.sortedBy { it.app.label.lowercase() },
             pickMain = normalPick + managedPick,
             pickCaution = cautionPick,
         )

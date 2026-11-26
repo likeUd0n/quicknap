@@ -125,7 +125,7 @@ class QuicknapWidgetProvider : AppWidgetProvider() {
                 record.packageName to appLabel
             }
 
-            val sorted = sortForWidget(candidates, state.asleepSortOrder, labelCache)
+            val sorted = sortForWidget(candidates, state.asleepSortOrder, state.manualAsleepOrder, labelCache)
             val top4 = sorted.take(4)
 
             val views = RemoteViews(context.packageName, R.layout.widget_compact_folder)
@@ -189,6 +189,7 @@ class QuicknapWidgetProvider : AppWidgetProvider() {
         private fun sortForWidget(
             apps: List<ManagedApp>,
             order: AsleepSortOrder,
+            manualOrder: List<String>,
             labels: Map<String, String>,
         ): List<ManagedApp> = when (order) {
             AsleepSortOrder.FREQUENCY -> apps.sortedWith(
@@ -202,6 +203,13 @@ class QuicknapWidgetProvider : AppWidgetProvider() {
             )
             AsleepSortOrder.NAME -> apps.sortedBy {
                 labels[it.packageName]?.lowercase() ?: it.packageName
+            }
+            AsleepSortOrder.MANUAL -> {
+                val orderIndex = manualOrder.withIndex().associate { (i, pkg) -> pkg to i }
+                apps.sortedWith(
+                    compareBy<ManagedApp> { orderIndex[it.packageName] ?: Int.MAX_VALUE }
+                        .thenBy { labels[it.packageName]?.lowercase() ?: it.packageName }
+                )
             }
         }
 

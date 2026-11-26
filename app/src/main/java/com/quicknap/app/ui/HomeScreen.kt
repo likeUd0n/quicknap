@@ -6,6 +6,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -38,12 +41,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -52,19 +60,25 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.quicknap.app.data.AsleepSortOrder
 import com.quicknap.app.data.Category
 import com.quicknap.app.shizuku.ShizukuStatus
 import com.quicknap.app.ui.theme.LocalQuicknapPalette
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
     state: UiState,
     onPick: () -> Unit,
+    onOpenCategories: (Boolean) -> Unit,
     onTapRow: (HomeRow) -> Unit,
     onToggle: (HomeRow, Boolean) -> Unit,
     selecting: Boolean,
     onSelectingChange: (Boolean) -> Unit,
+    reordering: Boolean,
+    onReorderingChange: (Boolean) -> Unit,
+    onReorderAsleep: (List<String>) -> Unit,
     onRelease: (List<HomeRow>) -> Unit,
     onOpenAppDetails: (String) -> Unit,
     onResumeShizuku: () -> Unit,
@@ -77,18 +91,38 @@ fun HomeScreen(
     onDeleteCategory: (String) -> Unit,
 ) {
     val palette = LocalQuicknapPalette.current
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val spacingPx = remember(density) { with(density) { 8.dp.roundToPx() } }
+    val autoScrollEdgePx = remember(density) { with(density) { 72.dp.toPx() } }
+
     var assignTarget by remember { mutableStateOf<HomeRow?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var createAssignPackage by remember { mutableStateOf<String?>(null) }
     var editTarget by remember { mutableStateOf<Category?>(null) }
     // 「外す」の選択モードで選んだパッケージ
     var selected by remember { mutableStateOf(emptySet<String>()) }
+    // 手動並び替えモード中の表示順とドラッグ状態
+    var dragRows by remember { mutableStateOf(state.asleep) }
+    var draggingPkg by remember { mutableStateOf<String?>(null) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(state.asleep, draggingPkg) {
+        if (draggingPkg == null) dragRows = state.asleep
+    }
 
     fun exitSelecting() {
         selected = emptySet()
         onSelectingChange(false)
     }
+    fun exitReordering() {
+        draggingPkg = null
+        dragOffsetY = 0f
+        onReorderingChange(false)
+    }
     BackHandler(enabled = selecting) { exitSelecting() }
+    BackHandler(enabled = reordering) { exitReordering() }
 
     // 眠っているアプリを戻すには有効化が要るため、Shizuku 停止中は選べない
     fun selectable(row: HomeRow, isBusy: Boolean): Boolean =
@@ -123,31 +157,55 @@ fun HomeScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (selecting) {
-                Text(
-                    text = "外すアプリを選ぶ（${selected.size}件）",
-                    color = palette.ink,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { exitSelecting() }) {
-                    Text(text = "キャンセル", color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            when {
+                selecting -> {
+                    Text(
+                        text = "外すアプリを選ぶ（${selected.size}件）",
+                        color = palette.ink,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { exitSelecting() }) {
+                        Text(text = "キャンセル", color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
-            } else {
-                Text(text = "Quicknap", color = palette.ink, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                HintButton(
-                    lines = listOf(
-                        "眠らせたアプリは、通知もアイコンも消えます。\nログインや権限は端末に残ります。",
-                        "行をタップすると、起きてそのまま開きます。\nスイッチが ON のアプリは眠っています。",
-                        "行を長押しすると、カテゴリを設定できます。\n「外す」から、対象から外せます。",
-                    ),
-                    label = "Quicknap の仕組み",
-                )
-                Spacer(Modifier.weight(1f))
-                if (state.hasManaged) {
-                    TextButton(onClick = { onSelectingChange(true) }) {
-                        Text(text = "外す", color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                reordering -> {
+                    Text(
+                        text = "順番を並び替え",
+                        color = palette.ink,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { exitReordering() }) {
+                        Text(text = "完了", color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                else -> {
+                    Text(text = "Quicknap", color = palette.ink, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                    HintButton(
+                        lines = listOf(
+                            "眠らせたアプリは、通知もアイコンも消えます。\nログインや権限は端末に残ります。",
+                            "行をタップすると、起きてそのまま開きます。\nスイッチが ON のアプリは眠っています。",
+                            "「カテゴリ」から名前の編集やアプリのまとめて追加ができます。\n「外す」から対象から外せます。",
+                        ),
+                        label = "Quicknap の仕組み",
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (state.hasManaged) {
+                        TextButton(
+                            onClick = { onOpenCategories(false) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(text = "カテゴリ", color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(
+                            onClick = { onSelectingChange(true) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(text = "外す", color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -178,6 +236,7 @@ fun HomeScreen(
             !state.hasManaged -> EmptyState(onPick = onPick)
 
             else -> LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = if (selecting) 96.dp else 88.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -199,8 +258,9 @@ fun HomeScreen(
                         badge = StateBadge.Awake,
                         isBusy = isBusy,
                         tag = row.categoryName,
-                        onClick = { if (selecting) toggleSelect(row, isBusy) else onTapRow(row) },
-                        onLongClick = if (selecting) null else ({ assignTarget = row }),
+                        onTagClick = if (selecting || reordering) null else ({ assignTarget = row }),
+                        onClick = if (reordering) null else ({ if (selecting) toggleSelect(row, isBusy) else onTapRow(row) }),
+                        onLongClick = if (selecting || reordering) null else ({ assignTarget = row }),
                     ) {
                         if (selecting) {
                             selectCheck(row, isBusy)
@@ -208,7 +268,7 @@ fun HomeScreen(
                             // ON＝眠らせている（選ぶ画面と同じ向き）
                             QuicknapSwitch(
                                 checked = false,
-                                enabled = state.shizukuReady,
+                                enabled = state.shizukuReady && !reordering,
                                 onCheckedChange = { onToggle(row, !it) },
                             )
                         }
@@ -223,15 +283,45 @@ fun HomeScreen(
                         dotColor = palette.sleepInk,
                         hint = listOf(
                             "行をタップすると、有効にしてそのまま開きます。\nスイッチを OFF にすると、開かずに有効にできます。",
-                            "行を長押しでカテゴリ設定、\nカテゴリチップ長押しで名前変更・削除ができます。",
+                            "「手動順」を選ぶと、右端の ≡ をドラッグして好きな順番に並び替えられます。",
+                            "右上の「カテゴリ」または行のカテゴリタグのタップで、カテゴリを編集できます。",
                         ),
                         hintLabel = "眠っている状態の説明",
-                        trailing = if (state.asleepTotalCount > 0) {
+                        trailing = if (state.asleepTotalCount > 0 && !selecting) {
                             {
-                                SortMenuButton(
-                                    current = state.asleepSortOrder,
-                                    onSelect = onChangeSortOrder,
-                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (reordering) {
+                                        Surface(
+                                            shape = RoundedCornerShape(999.dp),
+                                            color = palette.accent,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .clickable(role = Role.Button) { exitReordering() },
+                                        ) {
+                                            Text(
+                                                text = "完了",
+                                                color = palette.accentInk,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                            )
+                                        }
+                                    } else {
+                                        SortMenuButton(
+                                            current = state.asleepSortOrder,
+                                            onSelect = { order ->
+                                                onChangeSortOrder(order)
+                                                if (order == AsleepSortOrder.MANUAL && state.asleep.size >= 2) {
+                                                    onReorderingChange(true)
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         } else {
                             null
@@ -248,21 +338,21 @@ fun HomeScreen(
                             counts = state.asleepCategoryCounts,
                             onSelect = onSelectCategory,
                             onLongPressCategory = { editTarget = it },
-                            onAddCategory = {
-                                createAssignPackage = null
-                                showCreateDialog = true
-                            },
+                            onAddCategory = { onOpenCategories(true) },
                         )
                     }
                 }
 
+                val displayAsleep = if (reordering) dragRows else state.asleep
                 if (state.asleepTotalCount == 0) {
                     item(key = "e-asleep") { EmptyRow("眠っているアプリはありません") }
-                } else if (state.asleep.isEmpty()) {
+                } else if (displayAsleep.isEmpty()) {
                     item(key = "e-asleep-filtered") { EmptyRow("このカテゴリに眠っているアプリはありません") }
                 }
-                items(state.asleep, key = { "s:${it.app.packageName}" }) { row ->
-                    val isBusy = row.app.packageName in state.busy
+                items(displayAsleep, key = { "s:${it.app.packageName}" }) { row ->
+                    val pkg = row.app.packageName
+                    val isBusy = pkg in state.busy
+                    val isDragging = reordering && draggingPkg == pkg
                     AppRow(
                         icon = row.app.icon,
                         label = row.app.label,
@@ -271,10 +361,75 @@ fun HomeScreen(
                         badge = StateBadge.Asleep,
                         isBusy = isBusy,
                         tag = row.categoryName,
-                        onClick = { if (selecting) toggleSelect(row, isBusy) else onTapRow(row) },
-                        onLongClick = if (selecting) null else ({ assignTarget = row }),
+                        onTagClick = if (selecting || reordering) null else ({ assignTarget = row }),
+                        highlighted = isDragging,
+                        modifier = Modifier
+                            .zIndex(if (isDragging) 1f else 0f)
+                            .graphicsLayer {
+                                if (isDragging) {
+                                    translationY = dragOffsetY
+                                    scaleX = 1.02f
+                                    scaleY = 1.02f
+                                    shadowElevation = 12f
+                                }
+                            },
+                        onClick = if (reordering) null else ({ if (selecting) toggleSelect(row, isBusy) else onTapRow(row) }),
+                        onLongClick = if (selecting || reordering) null else ({ assignTarget = row }),
                     ) {
                         when {
+                            reordering -> DragHandle(
+                                active = isDragging,
+                                modifier = Modifier.pointerInput(pkg) {
+                                    detectDragGestures(
+                                        onDragStart = {
+                                            draggingPkg = pkg
+                                            dragOffsetY = 0f
+                                        },
+                                        onDragEnd = {
+                                            val committed = dragRows.map { it.app.packageName }
+                                            draggingPkg = null
+                                            dragOffsetY = 0f
+                                            onReorderAsleep(committed)
+                                        },
+                                        onDragCancel = {
+                                            draggingPkg = null
+                                            dragOffsetY = 0f
+                                            dragRows = state.asleep
+                                        },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            dragOffsetY += dragAmount.y
+                                            val currentIndex = dragRows.indexOfFirst { it.app.packageName == pkg }
+                                            if (currentIndex < 0) return@detectDragGestures
+                                            val layoutInfo = listState.layoutInfo
+                                            val draggedInfo = layoutInfo.visibleItemsInfo
+                                                .firstOrNull { it.key == "s:$pkg" }
+                                                ?: return@detectDragGestures
+                                            val itemHeight = (draggedInfo.size + spacingPx).coerceAtLeast(1)
+                                            if (dragOffsetY > itemHeight * 0.5f && currentIndex < dragRows.lastIndex) {
+                                                val next = dragRows.toMutableList()
+                                                val moved = next.removeAt(currentIndex)
+                                                next.add(currentIndex + 1, moved)
+                                                dragRows = next
+                                                dragOffsetY -= itemHeight
+                                            } else if (dragOffsetY < -itemHeight * 0.5f && currentIndex > 0) {
+                                                val next = dragRows.toMutableList()
+                                                val moved = next.removeAt(currentIndex)
+                                                next.add(currentIndex - 1, moved)
+                                                dragRows = next
+                                                dragOffsetY += itemHeight
+                                            }
+                                            // 画面端に近いときは自動でスクロールする
+                                            val visualCenter = draggedInfo.offset + draggedInfo.size / 2f + dragOffsetY
+                                            if (visualCenter > layoutInfo.viewportEndOffset - autoScrollEdgePx) {
+                                                coroutineScope.launch { listState.scrollBy(14f) }
+                                            } else if (visualCenter < layoutInfo.viewportStartOffset + autoScrollEdgePx) {
+                                                coroutineScope.launch { listState.scrollBy(-14f) }
+                                            }
+                                        },
+                                    )
+                                },
+                            )
                             selecting -> selectCheck(row, isBusy)
                             state.shizukuReady -> QuicknapSwitch(
                                 checked = true,
@@ -364,6 +519,29 @@ fun HomeScreen(
                 onDeleteCategory(target.id)
                 editTarget = null
             },
+        )
+    }
+}
+
+@Composable
+private fun DragHandle(
+    active: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalQuicknapPalette.current
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (active) palette.accentSoft else palette.bgSubtle.copy(alpha = 0.7f))
+            .semantics { contentDescription = "ドラッグして並び替え" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "≡",
+            color = if (active) palette.accent else palette.muted,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
         )
     }
 }

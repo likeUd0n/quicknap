@@ -11,8 +11,8 @@ android {
         applicationId = "com.quicknap.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.0-beta.1"
+        versionCode = 4
+        versionName = "0.1.0-beta.2"
     }
 
     // 署名情報はリポジトリ外の ~/.gradle/gradle.properties に置く

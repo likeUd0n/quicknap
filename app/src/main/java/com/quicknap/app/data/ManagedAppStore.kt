@@ -20,6 +20,7 @@ enum class AsleepSortOrder(val label: String) {
     FREQUENCY("よく使う順"),
     RECENT("最近使った順"),
     NAME("名前順"),
+    MANUAL("手動順"),
 }
 
 data class Category(
@@ -46,6 +47,7 @@ data class QuicknapState(
     val managedApps: Map<String, ManagedApp> = emptyMap(),
     val categories: List<Category> = emptyList(),
     val asleepSortOrder: AsleepSortOrder = AsleepSortOrder.FREQUENCY,
+    val manualAsleepOrder: List<String> = emptyList(),
     val autoSleepDays: Int = DEFAULT_AUTO_SLEEP_DAYS,
     val failedAutoSleepNotified: Boolean = false,
     val setupDone: Boolean = false,
@@ -107,6 +109,47 @@ class ManagedAppStore(context: Context) {
         dataStore.edit { it[KEY_ASLEEP_SORT] = order.name }
     }
 
+    suspend fun setManualAsleepOrder(packageNames: List<String>) {
+        dataStore.edit {
+            it[KEY_MANUAL_ASLEEP_ORDER] = encodeStringList(packageNames)
+            it[KEY_ASLEEP_SORT] = AsleepSortOrder.MANUAL.name
+        }
+    }
+
+    /**
+     * 見えている範囲の並び順を既存の手動順へマージして保存し、並び順を手動順に切り替える。
+     * カテゴリ絞り込み中やフォルダポップアップでの並び替えでも、他カテゴリの順番を壊さない。
+     */
+    suspend fun mergeManualAsleepOrder(
+        visibleOrderedPackages: List<String>,
+        fallbackBase: List<String> = emptyList(),
+    ) {
+        if (visibleOrderedPackages.isEmpty()) return
+        dataStore.edit { prefs ->
+            val current = decodeStringList(prefs[KEY_MANUAL_ASLEEP_ORDER])
+            val base = current.ifEmpty {
+                fallbackBase.ifEmpty { decodeApps(prefs[KEY_MANAGED_APPS]).keys.toList() }
+            }
+            val visibleSet = visibleOrderedPackages.toSet()
+            val merged = ArrayList<String>(base.size + visibleOrderedPackages.size)
+            var nextVisible = 0
+            for (pkg in base) {
+                if (pkg in visibleSet) {
+                    if (nextVisible < visibleOrderedPackages.size) {
+                        merged.add(visibleOrderedPackages[nextVisible++])
+                    }
+                } else {
+                    merged.add(pkg)
+                }
+            }
+            while (nextVisible < visibleOrderedPackages.size) {
+                merged.add(visibleOrderedPackages[nextVisible++])
+            }
+            prefs[KEY_MANUAL_ASLEEP_ORDER] = encodeStringList(merged.distinct())
+            prefs[KEY_ASLEEP_SORT] = AsleepSortOrder.MANUAL.name
+        }
+    }
+
     suspend fun addCategory(name: String): Category {
         val trimmed = name.trim()
         val category = Category(id = UUID.randomUUID().toString(), name = trimmed)
@@ -143,6 +186,19 @@ class ManagedAppStore(context: Context) {
         updateApps { apps ->
             val current = apps[packageName] ?: return@updateApps apps
             apps + (packageName to current.copy(categoryId = categoryId))
+        }
+    }
+
+    /** 指定カテゴリに属するアプリを一括更新する（外れたアプリは未分類へ戻す） */
+    suspend fun setCategoryApps(categoryId: String, packageNames: Set<String>) {
+        updateApps { apps ->
+            apps.mapValues { (pkg, app) ->
+                when {
+                    pkg in packageNames -> app.copy(categoryId = categoryId)
+                    app.categoryId == categoryId -> app.copy(categoryId = null)
+                    else -> app
+                }
+            }
         }
     }
 
@@ -196,6 +252,7 @@ class ManagedAppStore(context: Context) {
         asleepSortOrder = this[KEY_ASLEEP_SORT]
             ?.let { name -> AsleepSortOrder.entries.firstOrNull { it.name == name } }
             ?: AsleepSortOrder.FREQUENCY,
+        manualAsleepOrder = decodeStringList(this[KEY_MANUAL_ASLEEP_ORDER]),
         autoSleepDays = this[KEY_AUTO_SLEEP_DAYS] ?: QuicknapState.DEFAULT_AUTO_SLEEP_DAYS,
         failedAutoSleepNotified = this[KEY_FAILED_NOTIFIED] ?: false,
         setupDone = this[KEY_SETUP_DONE] ?: false,
@@ -268,6 +325,23 @@ class ManagedAppStore(context: Context) {
         return result
     }
 
+    private fun encodeStringList(values: List<String>): String {
+        val arr = JSONArray()
+        for (value in values) arr.put(value)
+        return arr.toString()
+    }
+
+    private fun decodeStringList(raw: String?): List<String> {
+        if (raw.isNullOrEmpty()) return emptyList()
+        val arr = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        val result = ArrayList<String>(arr.length())
+        for (i in 0 until arr.length()) {
+            val item = arr.optString(i).takeIf { it.isNotEmpty() } ?: continue
+            result.add(item)
+        }
+        return result
+    }
+
     private fun JSONObject.optIntOrNull(key: String): Int? = if (has(key)) optInt(key) else null
     private fun JSONObject.optLongOrNull(key: String): Long? = if (has(key)) optLong(key) else null
 
@@ -276,6 +350,7 @@ class ManagedAppStore(context: Context) {
         val KEY_CATEGORIES = stringPreferencesKey("categories")
         val KEY_DEFAULT_CATEGORIES_INITIALIZED = booleanPreferencesKey("default_categories_initialized")
         val KEY_ASLEEP_SORT = stringPreferencesKey("asleep_sort_order")
+        val KEY_MANUAL_ASLEEP_ORDER = stringPreferencesKey("manual_asleep_order")
         val KEY_AUTO_SLEEP_DAYS = intPreferencesKey("auto_sleep_days")
         val KEY_FAILED_NOTIFIED = booleanPreferencesKey("failed_auto_sleep_notified")
         val KEY_SETUP_DONE = booleanPreferencesKey("setup_done")

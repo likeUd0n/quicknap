@@ -85,27 +85,32 @@ fun AppRow(
     onClick: (() -> Unit)?,
     onLongClick: (() -> Unit)? = null,
     tag: String? = null,
+    onTagClick: (() -> Unit)? = null,
     subAccent: Boolean = false,
+    highlighted: Boolean = false,
+    modifier: Modifier = Modifier,
     trailing: @Composable () -> Unit,
 ) {
     val palette = LocalQuicknapPalette.current
     val shape = RoundedCornerShape(16.dp)
     val asleep = style == RowStyle.Asleep
-    val bgColor = when (style) {
-        RowStyle.Awake -> palette.bgAwake
-        RowStyle.Asleep -> palette.bgAsleep
-        RowStyle.Caution -> palette.warnBg
+    val bgColor = when {
+        highlighted -> palette.bgAwake
+        style == RowStyle.Awake -> palette.bgAwake
+        style == RowStyle.Asleep -> palette.bgAsleep
+        else -> palette.warnBg
     }
     val dashColor = palette.line
 
-    val base = Modifier
+    val base = modifier
         .fillMaxWidth()
         .clip(shape)
         .background(bgColor)
-    val rowModifier = when (style) {
-        RowStyle.Awake -> base.border(1.dp, palette.line, shape)
-        RowStyle.Caution -> base.border(1.dp, palette.warnLine.copy(alpha = 0.55f), shape)
-        RowStyle.Asleep -> base.drawBehind {
+    val rowModifier = when {
+        highlighted -> base.border(1.5.dp, palette.accent, shape)
+        style == RowStyle.Awake -> base.border(1.dp, palette.line, shape)
+        style == RowStyle.Caution -> base.border(1.dp, palette.warnLine.copy(alpha = 0.55f), shape)
+        else -> base.drawBehind {
             drawRoundRect(
                 color = dashColor,
                 cornerRadius = CornerRadius(16.dp.toPx(), 16.dp.toPx()),
@@ -208,9 +213,17 @@ fun AppRow(
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 if (tag != null && !isBusy) {
+                    val tagShape = RoundedCornerShape(999.dp)
                     Surface(
-                        shape = RoundedCornerShape(999.dp),
+                        shape = tagShape,
                         color = palette.bgSubtle,
+                        modifier = if (onTagClick != null) {
+                            Modifier
+                                .clip(tagShape)
+                                .clickable(role = Role.Button, onClick = onTagClick)
+                        } else {
+                            Modifier
+                        },
                     ) {
                         Text(
                             text = tag,
