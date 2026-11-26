@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical">
+
+    <!--
+        枠は、ラベルを除いた残りの高さ（と幅）に収まる正方形にする。
+        ランチャーごとにウィジェットの密度やアイコンサイズが異なるため、上限 dp で固定せず
+        folder_frame の内側パディング（設定の 70〜100%）で大きさを調整する。
+    -->
+    <LinearLayout
+        android:id="@+id/folder_frame"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center_horizontal|bottom">
+
+        <RelativeLayout
+            android:id="@+id/folder_box"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/widget_folder_bg"
+            android:padding="6dp">
+
+            <ImageView
+                android:id="@+id/folder_sizer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:adjustViewBounds="true"
+                android:contentDescription="@null"
+                android:src="@drawable/widget_folder_sizer" />
+
+            <ImageView
+                android:id="@+id/icon_empty"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_alignBottom="@id/folder_sizer"
+                android:layout_alignLeft="@id/folder_sizer"
+                android:layout_alignRight="@id/folder_sizer"
+                android:layout_alignTop="@id/folder_sizer"
+                android:contentDescription="@string/app_name"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_launcher_foreground"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/icon_grid"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_alignBottom="@id/folder_sizer"
+                android:layout_alignLeft="@id/folder_sizer"
+                android:layout_alignRight="@id/folder_sizer"
+                android:layout_alignTop="@id/folder_sizer"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:id="@+id/icon_0"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_marginEnd="2dp"
+                        android:layout_marginBottom="2dp"
+                        android:layout_weight="1"
+                        android:contentDescription="@null"
+                        android:scaleType="fitCenter" />
+
+                    <ImageView
+                        android:id="@+id/icon_1"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_marginStart="2dp"
+                        android:layout_marginBottom="2dp"
+                        android:layout_weight="1"
+                        android:contentDescription="@null"
+                        android:scaleType="fitCenter" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:id="@+id/icon_2"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_marginTop="2dp"
+                        android:layout_marginEnd="2dp"
+                        android:layout_weight="1"
+                        android:contentDescription="@null"
+                        android:scaleType="fitCenter" />
+
+                    <ImageView
+                        android:id="@+id/icon_3"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_marginStart="2dp"
+                        android:layout_marginTop="2dp"
+                        android:layout_weight="1"
+                        android:contentDescription="@null"
+                        android:scaleType="fitCenter" />
+                </LinearLayout>
+            </LinearLayout>
+        </RelativeLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:ellipsize="end"
+        android:includeFontPadding="false"
+        android:gravity="center"
+        android:maxLines="1"
+        android:shadowColor="#B3000000"
+        android:shadowDx="0"
+        android:shadowDy="1"
+        android:shadowRadius="2"
+        android:text="@string/app_name"
+        android:textColor="#FFFFFFFF"
+        android:textSize="11sp"
+        android:visibility="gone" />
+</LinearLayout>

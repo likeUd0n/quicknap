@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Quicknap</string>
+    <string name="widget_label">コンパクトフォルダ</string>
+    <string name="widget_description">眠らせたアプリをホーム画面から直接呼び出す 1×1 フォルダ</string>
+</resources>
