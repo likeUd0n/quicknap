@@ -1,8 +1,22 @@
-# Quicknap
+<p align="center">
+  <img src="assets/icon.svg" alt="Quicknap icon" width="96" height="96" />
+</p>
+
+<h1 align="center">Quicknap</h1>
+
+<p align="center">
+  たまにしか使わないアプリに、ちょっと昼寝してもらう Android アプリ
+</p>
 
 > **Status: Beta / WIP** — 個人開発中のベータ版です。仕様や UI は予告なく変わることがあります。
 
-たまにしか使わないアプリに、ちょっと昼寝してもらう Android アプリです。眠っている間は通知もアイコンも出ません。使いたくなったら1タップで起きて、ログインもそのまま残っています。
+眠っている間は通知もアイコンも出ません。使いたくなったら1タップで起きて、ログインもそのまま残っています。
+
+## スクリーンショット
+
+| ホーム画面 1×1 フォルダポップアップ | ドラッグで並び替え |
+| :---: | :---: |
+| <img src="assets/screenshots/folder.png" alt="ホーム画面の1×1フォルダポップアップ" width="260" /> | <img src="assets/screenshots/folder-reorder.png" alt="フォルダ内のドラッグ並び替えモード" width="260" /> |
 
 ## 既存の類似アプリとの違い
 

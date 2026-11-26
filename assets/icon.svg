@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 108 108" role="img" aria-label="Quicknap icon">
+  <defs>
+    <linearGradient id="sky" x1="54" y1="0" x2="54" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#14B8A6"/>
+      <stop offset="100%" stop-color="#0F766E"/>
+    </linearGradient>
+    <clipPath id="squircle">
+      <rect x="0" y="0" width="108" height="108" rx="24" ry="24"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#squircle)">
+    <rect x="0" y="0" width="108" height="108" fill="url(#sky)"/>
+    <!-- 午後の白い雲 -->
+    <path fill="#FFFFFF" d="M34,73 H70 A12,12 0 0,0 70,49 A16,16 0 0,0 39,46 A13,13 0 0,0 34,73 Z"/>
+    <!-- 軽やかな Zz -->
+    <path fill="none" stroke="#CCFBF1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" d="M58,26 H70 L59,38 H71"/>
+    <path fill="none" stroke="#CCFBF1" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M73,37 H81 L73.5,45 H81.5"/>
+  </g>
+</svg>
