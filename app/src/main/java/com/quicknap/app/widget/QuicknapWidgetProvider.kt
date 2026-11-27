@@ -79,6 +79,8 @@ class QuicknapWidgetProvider : AppWidgetProvider() {
 
         fun updateAll(context: Context) {
             val appCtx = context.applicationContext
+            // ピン留めショートカットもウィジェットと同じタイミングで同期更新する
+            QuicknapShortcutManager.updateAll(appCtx)
             val manager = AppWidgetManager.getInstance(appCtx)
             val ids = manager.getAppWidgetIds(ComponentName(appCtx, QuicknapWidgetProvider::class.java))
             if (ids.isEmpty()) return
@@ -186,7 +188,7 @@ class QuicknapWidgetProvider : AppWidgetProvider() {
             manager.updateAppWidget(appWidgetId, views)
         }
 
-        private fun sortForWidget(
+        internal fun sortForWidget(
             apps: List<ManagedApp>,
             order: AsleepSortOrder,
             manualOrder: List<String>,

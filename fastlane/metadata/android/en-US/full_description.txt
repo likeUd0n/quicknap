@@ -1,0 +1,16 @@
+Quicknap lets rarely used apps take a nap. While asleep, their notifications and launcher icons stay out of your way. When you need one, a single tap wakes and launches it with your login and permissions intact.
+
+Note: Quicknap is currently in beta and its in-app UI is in Japanese.
+
+Key features:
+- Put apps to sleep: Disables selected apps (pm disable-user --user 0) without uninstalling them, keeping your data, logins, and permissions.
+- One-tap wake & launch: Tap any sleeping app to re-enable and open it immediately.
+- Auto-sleep after inactivity: Automatically puts managed apps to sleep after a set number of unused days (default: 3 days).
+- Home screen folders: Place 1x1 widgets or pinned shortcut icons per category to wake and launch sleeping apps directly from your home screen.
+
+Requirements:
+- Android 12 or higher
+- Shizuku (no root required)
+
+Privacy:
+- All data stays on your device. Quicknap makes no network requests and includes no trackers.

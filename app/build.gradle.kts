@@ -11,8 +11,14 @@ android {
         applicationId = "com.quicknap.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.1.0-beta.2"
+        versionCode = 5
+        versionName = "0.1.0-beta.3"
+    }
+
+    dependenciesInfo {
+        // F-Droid 向けに Google Play 固有の依存メタデータブロックを除外する
+        includeInApk = false
+        includeInBundle = false
     }
 
     // 署名情報はリポジトリ外の ~/.gradle/gradle.properties に置く

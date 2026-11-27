@@ -34,6 +34,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -61,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.quicknap.app.R
 import com.quicknap.app.data.AsleepSortOrder
 import com.quicknap.app.data.Category
 import com.quicknap.app.shizuku.ShizukuStatus
@@ -72,6 +76,7 @@ fun HomeScreen(
     state: UiState,
     onPick: () -> Unit,
     onOpenCategories: (Boolean) -> Unit,
+    onAddHomeIcon: () -> Unit,
     onTapRow: (HomeRow) -> Unit,
     onToggle: (HomeRow, Boolean) -> Unit,
     selecting: Boolean,
@@ -103,6 +108,7 @@ fun HomeScreen(
     var editTarget by remember { mutableStateOf<Category?>(null) }
     // 「外す」の選択モードで選んだパッケージ
     var selected by remember { mutableStateOf(emptySet<String>()) }
+    var overflowMenuExpanded by remember { mutableStateOf(false) }
     // 手動並び替えモード中の表示順とドラッグ状態
     var dragRows by remember { mutableStateOf(state.asleep) }
     var draggingPkg by remember { mutableStateOf<String?>(null) }
@@ -188,23 +194,70 @@ fun HomeScreen(
                         lines = listOf(
                             "眠らせたアプリは、通知もアイコンも消えます。\nログインや権限は端末に残ります。",
                             "行をタップすると、起きてそのまま開きます。\nスイッチが ON のアプリは眠っています。",
-                            "「カテゴリ」から名前の編集やアプリのまとめて追加ができます。\n「外す」から対象から外せます。",
+                            "右上のアイコンから、ホーム画面へのフォルダ追加やカテゴリ管理ができます。\n「⋮」メニューからアプリを対象から外せます。",
                         ),
                         label = "Quicknap の仕組み",
                     )
                     Spacer(Modifier.weight(1f))
                     if (state.hasManaged) {
-                        TextButton(
-                            onClick = { onOpenCategories(false) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(text = "カテゴリ", color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        }
-                        TextButton(
-                            onClick = { onSelectingChange(true) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        ) {
-                            Text(text = "外す", color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            IconButton(
+                                onClick = onAddHomeIcon,
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_add_to_home),
+                                    contentDescription = "ホーム画面にフォルダアイコンを追加",
+                                    tint = palette.accent,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            IconButton(
+                                onClick = { onOpenCategories(false) },
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_category_grid),
+                                    contentDescription = "カテゴリ管理",
+                                    tint = palette.accent,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            Box {
+                                IconButton(
+                                    onClick = { overflowMenuExpanded = true },
+                                    modifier = Modifier.size(40.dp),
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_more_vert),
+                                        contentDescription = "その他の操作",
+                                        tint = palette.muted,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = overflowMenuExpanded,
+                                    onDismissRequest = { overflowMenuExpanded = false },
+                                    containerColor = palette.bgAwake,
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "対象から外す",
+                                                color = palette.ink,
+                                                fontSize = 14.sp,
+                                            )
+                                        },
+                                        onClick = {
+                                            overflowMenuExpanded = false
+                                            onSelectingChange(true)
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -284,7 +337,7 @@ fun HomeScreen(
                         hint = listOf(
                             "行をタップすると、有効にしてそのまま開きます。\nスイッチを OFF にすると、開かずに有効にできます。",
                             "「手動順」を選ぶと、右端の ≡ をドラッグして好きな順番に並び替えられます。",
-                            "右上の「カテゴリ」または行のカテゴリタグのタップで、カテゴリを編集できます。",
+                            "右上のカテゴリアイコン、または行のカテゴリタグのタップで、カテゴリを編集できます。",
                         ),
                         hintLabel = "眠っている状態の説明",
                         trailing = if (state.asleepTotalCount > 0 && !selecting) {

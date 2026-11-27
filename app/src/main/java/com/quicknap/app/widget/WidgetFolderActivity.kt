@@ -104,11 +104,14 @@ class WidgetFolderActivity : ComponentActivity() {
             AppWidgetManager.EXTRA_APPWIDGET_ID,
             AppWidgetManager.INVALID_APPWIDGET_ID,
         )
+        val shortcutId = intent.getStringExtra(EXTRA_SHORTCUT_ID)
         val extraCategoryId = intent.getStringExtra(EXTRA_CATEGORY_ID)
-        val initialCategoryId = if (widgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
-            WidgetPrefs.getCategory(this, widgetId) ?: extraCategoryId
-        } else {
-            extraCategoryId
+        val initialCategoryId = when {
+            widgetId != AppWidgetManager.INVALID_APPWIDGET_ID ->
+                WidgetPrefs.getCategory(this, widgetId) ?: extraCategoryId
+            shortcutId != null ->
+                QuicknapShortcutManager.getCategory(this, shortcutId) ?: extraCategoryId
+            else -> extraCategoryId
         }
 
         // キャッシュがあれば初回フレームから即時表示し、スピナー待ちをなくす
@@ -192,15 +195,18 @@ class WidgetFolderActivity : ComponentActivity() {
                     loading = loading,
                     shizukuReady = shizukuReady,
                     launchingPkg = launchingPkg,
-                    canConfigure = widgetId != AppWidgetManager.INVALID_APPWIDGET_ID,
+                    canConfigure = widgetId != AppWidgetManager.INVALID_APPWIDGET_ID || shortcutId != null,
                     onDismiss = { finish() },
                     onOpenConfig = {
-                        startActivity(
+                        val configIntent = if (shortcutId != null) {
+                            WidgetConfigActivity.createEditShortcutIntent(this, shortcutId)
+                        } else {
                             Intent(this, WidgetConfigActivity::class.java).apply {
                                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                             }
-                        )
+                        }
+                        startActivity(configIntent)
                         finish()
                     },
                     onOpenApp = {
@@ -324,6 +330,7 @@ class WidgetFolderActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_CATEGORY_ID = "extra_category_id"
+        const val EXTRA_SHORTCUT_ID = "extra_shortcut_id"
         private const val DEFAULT_FOLDER_TITLE = "眠っているアプリ"
     }
 }

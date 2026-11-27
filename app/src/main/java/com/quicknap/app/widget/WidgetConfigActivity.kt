@@ -1,11 +1,14 @@
 package com.quicknap.app.widget
 
 import android.appwidget.AppWidgetManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -57,35 +60,82 @@ import com.quicknap.app.data.LaunchableApp
 import com.quicknap.app.data.QuicknapState
 import com.quicknap.app.ui.theme.LocalQuicknapPalette
 import com.quicknap.app.ui.theme.QuicknapTheme
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+private enum class ConfigMode {
+    WIDGET,
+    SHORTCUT_CREATE,
+    SHORTCUT_EDIT,
+}
+
 /**
- * 1×1 コンパクトフォルダウィジェットをホーム画面に置くとき（または再設定時）に、
- * カテゴリ・ラベル表示・アイコンサイズを選ぶ画面。
+ * 1×1 コンパクトフォルダウィジェット／ホーム画面ショートカットの設定・追加画面。
+ * カテゴリ・ラベル表示・（ウィジェット時のみ）サイズと縦位置を選ぶ。
  */
 class WidgetConfigActivity : ComponentActivity() {
 
+    private var configMode: ConfigMode = ConfigMode.WIDGET
     private var appWidgetId: Int = AppWidgetManager.INVALID_APPWIDGET_ID
+    private var shortcutId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setResult(RESULT_CANCELED)
 
+        val shortcutModeExtra = intent?.getStringExtra(EXTRA_SHORTCUT_MODE)
+        shortcutId = intent?.getStringExtra(EXTRA_SHORTCUT_ID)
         appWidgetId = intent?.extras?.getInt(
             AppWidgetManager.EXTRA_APPWIDGET_ID,
             AppWidgetManager.INVALID_APPWIDGET_ID,
         ) ?: AppWidgetManager.INVALID_APPWIDGET_ID
 
-        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
-            finish()
-            return
+        configMode = when {
+            shortcutModeExtra == MODE_CREATE -> ConfigMode.SHORTCUT_CREATE
+            shortcutModeExtra == MODE_EDIT && !shortcutId.isNullOrBlank() -> ConfigMode.SHORTCUT_EDIT
+            appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID -> ConfigMode.WIDGET
+            else -> {
+                finish()
+                return
+            }
         }
 
         val app = application as QuicknapApp
-        val initialCategoryId = WidgetPrefs.getCategory(this, appWidgetId)
-        val initialShowLabel = WidgetPrefs.getShowLabel(this, appWidgetId)
-        val initialScalePercent = WidgetPrefs.getIconScalePercent(this, appWidgetId)
-        val initialVerticalAlign = WidgetPrefs.getVerticalAlign(this, appWidgetId)
+        val initialCategoryId = when (configMode) {
+            ConfigMode.WIDGET -> WidgetPrefs.getCategory(this, appWidgetId)
+            ConfigMode.SHORTCUT_CREATE -> intent?.getStringExtra(EXTRA_INITIAL_CATEGORY_ID)
+            ConfigMode.SHORTCUT_EDIT -> QuicknapShortcutManager.getCategory(this, shortcutId!!)
+        }
+        val initialShowLabel = when (configMode) {
+            ConfigMode.WIDGET -> WidgetPrefs.getShowLabel(this, appWidgetId)
+            ConfigMode.SHORTCUT_CREATE -> QuicknapShortcutManager.DEFAULT_SHOW_LABEL
+            ConfigMode.SHORTCUT_EDIT -> QuicknapShortcutManager.getShowLabel(this, shortcutId!!)
+        }
+        val initialScalePercent = if (configMode == ConfigMode.WIDGET) {
+            WidgetPrefs.getIconScalePercent(this, appWidgetId)
+        } else {
+            WidgetPrefs.DEFAULT_ICON_SCALE_PERCENT
+        }
+        val initialVerticalAlign = if (configMode == ConfigMode.WIDGET) {
+            WidgetPrefs.getVerticalAlign(this, appWidgetId)
+        } else {
+            WidgetVerticalAlign.BOTTOM
+        }
+        val isWidget = configMode == ConfigMode.WIDGET
+        val headerTitle = when (configMode) {
+            ConfigMode.WIDGET -> "フォルダウィジェットの設定"
+            ConfigMode.SHORTCUT_CREATE -> "ホームにフォルダアイコンを追加"
+            ConfigMode.SHORTCUT_EDIT -> "フォルダアイコンの設定"
+        }
+        val headerSubtitle = when (configMode) {
+            ConfigMode.WIDGET -> "ホーム画面での見た目と、表示するカテゴリを選べます。"
+            ConfigMode.SHORTCUT_CREATE -> "通常アイコンと同じ位置・サイズでホーム画面に置けます。"
+            ConfigMode.SHORTCUT_EDIT -> "ホーム画面での見た目と、表示するカテゴリを変更できます。"
+        }
+        val primaryButtonLabel = when (configMode) {
+            ConfigMode.SHORTCUT_CREATE -> "ホーム画面に追加する"
+            ConfigMode.WIDGET, ConfigMode.SHORTCUT_EDIT -> "この設定で保存する"
+        }
 
         enableEdgeToEdge()
         setContent {
@@ -152,7 +202,7 @@ class WidgetConfigActivity : ComponentActivity() {
                                         .height(48.dp),
                                 ) {
                                     Text(
-                                        text = "この設定で保存する",
+                                        text = primaryButtonLabel,
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
                                     )
@@ -171,14 +221,14 @@ class WidgetConfigActivity : ComponentActivity() {
                         item(key = "header") {
                             Column(modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)) {
                                 Text(
-                                    text = "フォルダウィジェットの設定",
+                                    text = headerTitle,
                                     color = palette.ink,
                                     fontSize = 19.sp,
                                     fontWeight = FontWeight.Bold,
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    text = "ホーム画面での見た目と、表示するカテゴリを選べます。",
+                                    text = headerSubtitle,
                                     color = palette.muted,
                                     fontSize = 13.sp,
                                 )
@@ -199,6 +249,7 @@ class WidgetConfigActivity : ComponentActivity() {
                             AppearanceSettingsCard(
                                 showLabel = showLabel,
                                 onShowLabelChange = { showLabel = it },
+                                showWidgetAdjustments = isWidget,
                                 iconScalePercent = iconScalePercent,
                                 onIconScaleChange = { iconScalePercent = it },
                                 verticalAlign = verticalAlign,
@@ -261,11 +312,58 @@ class WidgetConfigActivity : ComponentActivity() {
         iconScalePercent: Int,
         verticalAlign: WidgetVerticalAlign,
     ) {
-        WidgetPrefs.saveAll(this, appWidgetId, categoryId, showLabel, iconScalePercent, verticalAlign)
-        QuicknapWidgetProvider.updateWidget(this, appWidgetId)
-        val resultValue = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-        setResult(RESULT_OK, resultValue)
-        finish()
+        when (configMode) {
+            ConfigMode.WIDGET -> {
+                WidgetPrefs.saveAll(this, appWidgetId, categoryId, showLabel, iconScalePercent, verticalAlign)
+                QuicknapWidgetProvider.updateWidget(this, appWidgetId)
+                val resultValue = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                setResult(RESULT_OK, resultValue)
+                finish()
+            }
+            ConfigMode.SHORTCUT_CREATE -> {
+                lifecycleScope.launch {
+                    val ok = QuicknapShortcutManager.pinShortcut(this@WidgetConfigActivity, categoryId, showLabel)
+                    val msg = if (ok) {
+                        "ホーム画面にアイコンを追加しました"
+                    } else {
+                        "このランチャーではアイコン追加に対応していません"
+                    }
+                    Toast.makeText(this@WidgetConfigActivity, msg, Toast.LENGTH_SHORT).show()
+                    if (ok) setResult(RESULT_OK)
+                    finish()
+                }
+            }
+            ConfigMode.SHORTCUT_EDIT -> {
+                val id = shortcutId ?: return
+                QuicknapShortcutManager.saveSettings(this, id, categoryId, showLabel)
+                QuicknapShortcutManager.updateShortcut(this, id)
+                setResult(RESULT_OK)
+                finish()
+            }
+        }
+    }
+
+    companion object {
+        private const val EXTRA_SHORTCUT_MODE = "extra_shortcut_mode"
+        private const val EXTRA_SHORTCUT_ID = "extra_shortcut_id"
+        private const val EXTRA_INITIAL_CATEGORY_ID = "extra_initial_category_id"
+        private const val MODE_CREATE = "create"
+        private const val MODE_EDIT = "edit"
+
+        fun createPinShortcutIntent(context: Context, initialCategoryId: String? = null): Intent =
+            Intent(context, WidgetConfigActivity::class.java).apply {
+                putExtra(EXTRA_SHORTCUT_MODE, MODE_CREATE)
+                if (initialCategoryId != null) {
+                    putExtra(EXTRA_INITIAL_CATEGORY_ID, initialCategoryId)
+                }
+            }
+
+        fun createEditShortcutIntent(context: Context, shortcutId: String): Intent =
+            Intent(context, WidgetConfigActivity::class.java).apply {
+                putExtra(EXTRA_SHORTCUT_MODE, MODE_EDIT)
+                putExtra(EXTRA_SHORTCUT_ID, shortcutId)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
     }
 }
 
@@ -418,6 +516,7 @@ private fun PreviewMiniTile(icon: ImageBitmap?, modifier: Modifier = Modifier) {
 private fun AppearanceSettingsCard(
     showLabel: Boolean,
     onShowLabelChange: (Boolean) -> Unit,
+    showWidgetAdjustments: Boolean,
     iconScalePercent: Int,
     onIconScaleChange: (Int) -> Unit,
     verticalAlign: WidgetVerticalAlign,
@@ -460,6 +559,7 @@ private fun AppearanceSettingsCard(
                 )
             }
 
+            if (showWidgetAdjustments) {
             Spacer(Modifier.height(12.dp))
 
             Row(
@@ -568,6 +668,7 @@ private fun AppearanceSettingsCard(
                         )
                     }
                 }
+            }
             }
         }
     }

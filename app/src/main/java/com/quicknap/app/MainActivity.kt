@@ -38,6 +38,7 @@ import com.quicknap.app.ui.QuicknapSnackbarVisuals
 import com.quicknap.app.ui.SetupScreen
 import com.quicknap.app.ui.theme.LocalQuicknapPalette
 import com.quicknap.app.ui.theme.QuicknapTheme
+import com.quicknap.app.widget.WidgetConfigActivity
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -152,6 +153,14 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onSaveCategory = viewModel::saveCategory,
                                 onDeleteCategory = viewModel::deleteCategory,
+                                onAddHomeIcon = { categoryId ->
+                                    startActivity(
+                                        WidgetConfigActivity.createPinShortcutIntent(
+                                            this@MainActivity,
+                                            categoryId,
+                                        )
+                                    )
+                                },
                             )
 
                             else -> HomeScreen(
@@ -160,6 +169,14 @@ class MainActivity : ComponentActivity() {
                                 onOpenCategories = { createNew ->
                                     categoryInitialCreate = createNew
                                     showCategories = true
+                                },
+                                onAddHomeIcon = {
+                                    startActivity(
+                                        WidgetConfigActivity.createPinShortcutIntent(
+                                            this@MainActivity,
+                                            state.selectedCategoryId,
+                                        )
+                                    )
                                 },
                                 onTapRow = viewModel::tapHomeRow,
                                 onToggle = viewModel::toggleHomeRow,

@@ -64,6 +64,7 @@ fun CategoryScreen(
     onBack: () -> Unit,
     onSaveCategory: (id: String?, name: String, packageNames: Set<String>) -> Unit,
     onDeleteCategory: (String) -> Unit,
+    onAddHomeIcon: (String?) -> Unit,
 ) {
     var editingCategoryId by remember { mutableStateOf<String?>(null) }
     var creating by remember { mutableStateOf(initialCreate) }
@@ -108,6 +109,9 @@ fun CategoryScreen(
                     onDeleteCategory(cat.id)
                     editingCategoryId = null
                 }
+            },
+            onAddHomeIcon = target?.let { cat ->
+                { onAddHomeIcon(cat.id) }
             },
         )
     } else {
@@ -356,6 +360,7 @@ private fun CategoryEditorView(
     onBack: () -> Unit,
     onSave: (name: String, selectedPackages: Set<String>) -> Unit,
     onDelete: (() -> Unit)?,
+    onAddHomeIcon: (() -> Unit)?,
 ) {
     val palette = LocalQuicknapPalette.current
     var name by remember(category?.id) { mutableStateOf(category?.name.orEmpty()) }
@@ -451,6 +456,28 @@ private fun CategoryEditorView(
                 ),
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            if (onAddHomeIcon != null) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = onAddHomeIcon,
+                    border = BorderStroke(1.dp, palette.accent.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = palette.accentSoft,
+                        contentColor = palette.accent,
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                ) {
+                    Text(
+                        text = "このカテゴリをホーム画面に置く",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
 
             Spacer(Modifier.height(14.dp))
 

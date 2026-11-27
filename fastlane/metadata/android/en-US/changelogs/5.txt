@@ -1,0 +1,3 @@
+- Added pinned home screen shortcut (folder icon) support alongside widgets
+- Updated home header actions to icons and moved "Remove from Quicknap" into the overflow menu
+- Disabled AGP dependency metadata block for F-Droid compatibility
